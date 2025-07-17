@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Draft Resource 2</title>
+  <title>Draft Resource 3</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -38,59 +38,64 @@
     <tbody></tbody>
   </table>
 
-  <script>
-    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQzOSbWAtx4LanZ9VYdGTyih4-2siErBbW4oYKO19ft3wfi116XFoPfl3ZIRtpzoo0E2E2Ij-fFaX-e/pub?output=csv';
-    const API_BASE = 'https://api.real.vg/user/';
+<script>
+  const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQzOSbWAtx4LanZ9VYdGTyih4-2siErBbW4oYKO19ft3wfi116XFoPfl3ZIRtpzoo0E2E2Ij-fFaX-e/pub?output=csv';
+  const API_BASE = 'https://api.real.vg/user/';
 
-    async function fetchCSV() {
-      try {
-        const response = await fetch(CSV_URL);
-        const text = await response.text();
-        const lines = text.trim().split('\n').slice(1); // skip header
-        return lines.map(line => {
-          const [userAt, userId, status] = line.split(',').map(s => s.trim());
-          return { userAt, userId, status };
-        }).filter(user => user.status === 'available');
-      } catch (err) {
-        console.error('Failed to fetch CSV:', err);
-        return [];
-      }
+  async function fetchCSV() {
+    try {
+      const response = await fetch(CSV_URL);
+      const text = await response.text();
+      const lines = text.trim().split('\n').slice(1);
+      return lines.map(line => {
+        const [userAt, userId, status] = line.split(',').map(s => s.trim());
+        return { userAt, userId, status };
+      }).filter(user => user.status === 'available');
+    } catch (err) {
+      console.error('CSV fetch error:', err);
+      return [];
     }
+  }
 
-    async function fetchUserData(userId) {
-      const url = `${API_BASE}${userId}/karmafeed`;
-      try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('Non-200 response');
-        const data = await response.json();
-        if (!data.stats) return null;
-        return {
-          karmaWeekRank: data.stats.karmaWeekRank ?? 'N/A',
-          karmaMonthRank: data.stats.karmaMonthRank ?? 'N/A'
-        };
-      } catch (err) {
-        console.warn(`Error fetching data for user ${userId}:`, err);
-        return null;
-      }
+  async function fetchUserData(userId) {
+    const url = `${API_BASE}${userId}/karmafeed`;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+
+      console.log(`Fetched data for ${userId}:`, data);
+
+      if (!data.stats) return null;
+
+      return {
+        karmaWeekRank: data.stats.karmaWeekRank ?? 'N/A',
+        karmaMonthRank: data.stats.karmaMonthRank ?? 'N/A'
+      };
+    } catch (err) {
+      console.warn(`Failed to fetch stats for ${userId}:`, err);
+      return null;
     }
+  }
 
-    async function buildTable() {
-      const users = await fetchCSV();
-      const tableBody = document.querySelector('#karmaTable tbody');
+  async function buildTable() {
+    const users = await fetchCSV();
+    const tableBody = document.querySelector('#karmaTable tbody');
 
-      for (const user of users) {
-        const stats = await fetchUserData(user.userId);
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${user.userAt}</td>
-          <td>${stats ? stats.karmaWeekRank : 'N/A'}</td>
-          <td>${stats ? stats.karmaMonthRank : 'N/A'}</td>
-        `;
-        tableBody.appendChild(tr);
-      }
+    for (const user of users) {
+      const stats = await fetchUserData(user.userId);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${user.userAt}</td>
+        <td>${stats ? stats.karmaWeekRank : 'N/A'}</td>
+        <td>${stats ? stats.karmaMonthRank : 'N/A'}</td>
+      `;
+      tableBody.appendChild(tr);
     }
+  }
 
-    buildTable();
-  </script>
+  buildTable();
+</script>
+
 </body>
 </html>
