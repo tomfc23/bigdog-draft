@@ -3,95 +3,88 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>RKL Rankings Table 4</title>
+  <title>Live Karma Feed 5</title>
   <style>
     body {
       background-color: #121212;
       color: #fff;
-      font-family: Arial, sans-serif;
+      font-family: sans-serif;
       padding: 20px;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 10px;
+      margin-top: 20px;
     }
     th, td {
       border: 1px solid #444;
       padding: 8px;
-      text-align: center;
+      text-align: left;
     }
     th {
-      background-color: #222;
-    }
-    tr:nth-child(even) {
-      background-color: #1d1d1d;
+      background-color: #1f1f1f;
     }
   </style>
 </head>
 <body>
-  <h1>RKL Rankings</h1>
-  <table id="rankingsTable">
+  <h1>Karma Leaderboard</h1>
+  <table>
     <thead>
       <tr>
-        <th>User</th>
-        <th>Week Rank</th>
-        <th>Month Rank</th>
+        <th>Username</th>
+        <th>Karma Today</th>
+        <th>Rank</th>
       </tr>
     </thead>
-    <tbody>
-      <!-- Add your users here -->
-      <tr data-user-id="Gv1Ajxrv">
-        <td>@randy_mf</td>
-        <td class="week-rank">Loading...</td>
-        <td class="month-rank">Loading...</td>
-      </tr>
-      <tr data-user-id="R3XzNjMJ">
-        <td>@her</td>
-        <td class="week-rank">Loading...</td>
-        <td class="month-rank">Loading...</td>
-      </tr>
+    <tbody id="leaderboard">
+      <tr><td colspan="3">Loading...</td></tr>
     </tbody>
   </table>
 
   <script>
-    async function fetchUserData(userId) {
-      const url = `https://api.real.vg/user/${userId}/karmafeed`;
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQzOSbWAtx4LanZ9VYdGTyih4-2siErBbW4oYKO19ft3wfi116XFoPfl3ZIRtpzoo0E2E2Ij-fFaX-e/pub?output=csv';
+    const API_BASE = 'https://api.real.vg/user/';
 
+    async function fetchCSV(url) {
+      const res = await fetch(url);
+      const text = await res.text();
+      return text.trim().split('\n').slice(1).map(line => {
+        const [username, userId, status] = line.split(',');
+        return { username: username.trim(), userId: userId.trim(), status: status.trim() };
+      });
+    }
+
+    async function fetchKarma(userId) {
       try {
-        const response = await fetch(proxyUrl);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-
-        if (!data.stats) return { week: 'N/A', month: 'N/A' };
-
+        const res = await fetch(`https://api.real.vg/user/${userId}/karmafeed`);
+        const data = await res.json();
         return {
-          week: data.stats.karmaWeekRank ?? 'N/A',
-          month: data.stats.karmaMonthRank ?? 'N/A'
+          amount: data?.stats?.amount ?? 'N/A',
+          rank: data?.stats?.rank ?? 'N/A'
         };
-      } catch (err) {
-        console.error(`Error fetching for ${userId}:`, err);
-        return { week: 'N/A', month: 'N/A' };
+      } catch (e) {
+        return { amount: 'N/A', rank: 'N/A' };
       }
     }
 
-    async function populateTable() {
-      const rows = document.querySelectorAll('tbody tr');
+    async function buildLeaderboard() {
+      const users = await fetchCSV(CSV_URL);
+      const leaderboard = document.getElementById('leaderboard');
+      leaderboard.innerHTML = '';
 
-      for (const row of rows) {
-        const userId = row.getAttribute('data-user-id');
-        const weekCell = row.querySelector('.week-rank');
-        const monthCell = row.querySelector('.month-rank');
-
-        const { week, month } = await fetchUserData(userId);
-
-        weekCell.textContent = week;
-        monthCell.textContent = month;
+      for (const user of users.filter(u => u.status === 'available')) {
+        const { amount, rank } = await fetchKarma(user.userId);
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>@${user.username}</td>
+          <td>${amount}</td>
+          <td>${rank}</td>
+        `;
+        leaderboard.appendChild(row);
       }
     }
 
-    populateTable();
+    buildLeaderboard();
   </script>
 </body>
 </html>
