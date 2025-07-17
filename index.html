@@ -1,33 +1,37 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Draft Resource 3</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RKL Rankings Table 4</title>
   <style>
     body {
+      background-color: #121212;
+      color: #fff;
       font-family: Arial, sans-serif;
-      background: #0A1B2A;
-      color: #EAC76F;
       padding: 20px;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 20px;
+      margin-top: 10px;
     }
     th, td {
-      border: 1px solid #EAC76F;
+      border: 1px solid #444;
       padding: 8px;
-      text-align: left;
+      text-align: center;
     }
     th {
-      background-color: #1A2B3A;
+      background-color: #222;
+    }
+    tr:nth-child(even) {
+      background-color: #1d1d1d;
     }
   </style>
 </head>
 <body>
-  <h1>Draft Resource - Karma Rankings</h1>
-  <table id="karmaTable">
+  <h1>RKL Rankings</h1>
+  <table id="rankingsTable">
     <thead>
       <tr>
         <th>User</th>
@@ -35,67 +39,59 @@
         <th>Month Rank</th>
       </tr>
     </thead>
-    <tbody></tbody>
+    <tbody>
+      <!-- Add your users here -->
+      <tr data-user-id="Gv1Ajxrv">
+        <td>@randy_mf</td>
+        <td class="week-rank">Loading...</td>
+        <td class="month-rank">Loading...</td>
+      </tr>
+      <tr data-user-id="R3XzNjMJ">
+        <td>@her</td>
+        <td class="week-rank">Loading...</td>
+        <td class="month-rank">Loading...</td>
+      </tr>
+    </tbody>
   </table>
 
-<script>
-  const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQzOSbWAtx4LanZ9VYdGTyih4-2siErBbW4oYKO19ft3wfi116XFoPfl3ZIRtpzoo0E2E2Ij-fFaX-e/pub?output=csv';
-  const API_BASE = 'https://api.real.vg/user/';
+  <script>
+    async function fetchUserData(userId) {
+      const url = `https://api.real.vg/user/${userId}/karmafeed`;
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
 
-  async function fetchCSV() {
-    try {
-      const response = await fetch(CSV_URL);
-      const text = await response.text();
-      const lines = text.trim().split('\n').slice(1);
-      return lines.map(line => {
-        const [userAt, userId, status] = line.split(',').map(s => s.trim());
-        return { userAt, userId, status };
-      }).filter(user => user.status === 'available');
-    } catch (err) {
-      console.error('CSV fetch error:', err);
-      return [];
+      try {
+        const response = await fetch(proxyUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+
+        if (!data.stats) return { week: 'N/A', month: 'N/A' };
+
+        return {
+          week: data.stats.karmaWeekRank ?? 'N/A',
+          month: data.stats.karmaMonthRank ?? 'N/A'
+        };
+      } catch (err) {
+        console.error(`Error fetching for ${userId}:`, err);
+        return { week: 'N/A', month: 'N/A' };
+      }
     }
-  }
 
-  async function fetchUserData(userId) {
-    const url = `${API_BASE}${userId}/karmafeed`;
-    try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
+    async function populateTable() {
+      const rows = document.querySelectorAll('tbody tr');
 
-      console.log(`Fetched data for ${userId}:`, data);
+      for (const row of rows) {
+        const userId = row.getAttribute('data-user-id');
+        const weekCell = row.querySelector('.week-rank');
+        const monthCell = row.querySelector('.month-rank');
 
-      if (!data.stats) return null;
+        const { week, month } = await fetchUserData(userId);
 
-      return {
-        karmaWeekRank: data.stats.karmaWeekRank ?? 'N/A',
-        karmaMonthRank: data.stats.karmaMonthRank ?? 'N/A'
-      };
-    } catch (err) {
-      console.warn(`Failed to fetch stats for ${userId}:`, err);
-      return null;
+        weekCell.textContent = week;
+        monthCell.textContent = month;
+      }
     }
-  }
 
-  async function buildTable() {
-    const users = await fetchCSV();
-    const tableBody = document.querySelector('#karmaTable tbody');
-
-    for (const user of users) {
-      const stats = await fetchUserData(user.userId);
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${user.userAt}</td>
-        <td>${stats ? stats.karmaWeekRank : 'N/A'}</td>
-        <td>${stats ? stats.karmaMonthRank : 'N/A'}</td>
-      `;
-      tableBody.appendChild(tr);
-    }
-  }
-
-  buildTable();
-</script>
-
+    populateTable();
+  </script>
 </body>
 </html>
