@@ -3,13 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Live Karma Feed 5</title>
+  <title>Karma League - Rankings</title>
   <style>
     body {
       background-color: #121212;
-      color: #fff;
-      font-family: sans-serif;
-      padding: 20px;
+      color: #ffffff;
+      font-family: Arial, sans-serif;
     }
     table {
       width: 100%;
@@ -17,74 +16,94 @@
       margin-top: 20px;
     }
     th, td {
-      border: 1px solid #444;
-      padding: 8px;
+      padding: 10px;
       text-align: left;
+      border-bottom: 1px solid #444;
     }
     th {
-      background-color: #1f1f1f;
+      background-color: #1e1e1e;
     }
   </style>
 </head>
 <body>
-  <h1>Karma Leaderboard</h1>
-  <table>
+  <h1>Karma League - Rankings</h1>
+  <table id="scoreTable">
     <thead>
       <tr>
-        <th>Username</th>
-        <th>Karma Today</th>
-        <th>Rank</th>
+        <th>User</th>
+        <th>Week Rank</th>
+        <th>Month Rank</th>
       </tr>
     </thead>
-    <tbody id="leaderboard">
+    <tbody id="tableBody">
       <tr><td colspan="3">Loading...</td></tr>
     </tbody>
   </table>
 
   <script>
     const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQzOSbWAtx4LanZ9VYdGTyih4-2siErBbW4oYKO19ft3wfi116XFoPfl3ZIRtpzoo0E2E2Ij-fFaX-e/pub?output=csv';
-    const API_BASE = 'https://api.real.vg/user/';
 
     async function fetchCSV(url) {
-      const res = await fetch(url);
-      const text = await res.text();
-      return text.trim().split('\n').slice(1).map(line => {
-        const [username, userId, status] = line.split(',');
-        return { username: username.trim(), userId: userId.trim(), status: status.trim() };
-      });
+      const response = await fetch(url);
+      const text = await response.text();
+      return text.split('\n').slice(1).map(row => {
+        const [username, userId, status] = row.split(',');
+        return {
+          username: username.trim(),
+          userId: userId.trim(),
+          status: status.trim()
+        };
+      }).filter(row => row.status === 'available');
     }
 
-    async function fetchKarma(userId) {
+    async function fetchKarmaStats(userId) {
       try {
         const res = await fetch(`https://api.real.vg/user/${userId}/karmafeed`);
         const data = await res.json();
+        const stats = data.stats || {};
         return {
-          amount: data?.stats?.amount ?? 'N/A',
-          rank: data?.stats?.rank ?? 'N/A'
+          weekRank: stats.karmaWeekRank ?? 'N/A',
+          monthRank: stats.karmaMonthRank ?? 'N/A'
         };
-      } catch (e) {
-        return { amount: 'N/A', rank: 'N/A' };
+      } catch (err) {
+        console.error(`Error fetching stats for ${userId}`, err);
+        return {
+          weekRank: 'N/A',
+          monthRank: 'N/A'
+        };
       }
     }
 
-    async function buildLeaderboard() {
+    async function buildTable() {
+      const tableBody = document.getElementById('tableBody');
+      tableBody.innerHTML = '<tr><td colspan="3">Loading...</td></tr>';
+
       const users = await fetchCSV(CSV_URL);
-      const leaderboard = document.getElementById('leaderboard');
-      leaderboard.innerHTML = '';
+      tableBody.innerHTML = '';
 
-      for (const user of users.filter(u => u.status === 'available')) {
-        const { amount, rank } = await fetchKarma(user.userId);
+      for (const user of users) {
         const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>@${user.username}</td>
-          <td>${amount}</td>
-          <td>${rank}</td>
-        `;
-        leaderboard.appendChild(row);
+        const nameCell = document.createElement('td');
+        nameCell.textContent = user.username;
+
+        const weekRankCell = document.createElement('td');
+        weekRankCell.textContent = '...';
+
+        const monthRankCell = document.createElement('td');
+        monthRankCell.textContent = '...';
+
+        row.appendChild(nameCell);
+        row.appendChild(weekRankCell);
+        row.appendChild(monthRankCell);
+        tableBody.appendChild(row);
+
+        const stats = await fetchKarmaStats(user.userId);
+        weekRankCell.textContent = stats.weekRank;
+        monthRankCell.textContent = stats.monthRank;
       }
     }
 
-    buildLeaderboard();
+    buildTable();
   </script>
 </body>
 </html>
