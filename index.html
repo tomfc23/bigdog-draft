@@ -2,12 +2,27 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Draft Resource</title>
+  <title>Draft Resource 2</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #0A1B2A; color: #EAC76F; padding: 20px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #EAC76F; padding: 8px; text-align: left; }
-    th { background-color: #1A2B3A; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #0A1B2A;
+      color: #EAC76F;
+      padding: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #EAC76F;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #1A2B3A;
+    }
   </style>
 </head>
 <body>
@@ -25,27 +40,38 @@
 
   <script>
     const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQzOSbWAtx4LanZ9VYdGTyih4-2siErBbW4oYKO19ft3wfi116XFoPfl3ZIRtpzoo0E2E2Ij-fFaX-e/pub?output=csv';
-    const API_BASE = 'http://api.real.vg/user/';
+    const API_BASE = 'https://api.real.vg/user/';
 
     async function fetchCSV() {
-      const response = await fetch(CSV_URL);
-      const text = await response.text();
-      const lines = text.trim().split('\n').slice(1); // skip header
-      return lines.map(line => {
-        const [userAt, userId, status] = line.split(',');
-        return { userAt, userId, status };
-      }).filter(user => user.status === 'available');
+      try {
+        const response = await fetch(CSV_URL);
+        const text = await response.text();
+        const lines = text.trim().split('\n').slice(1); // skip header
+        return lines.map(line => {
+          const [userAt, userId, status] = line.split(',').map(s => s.trim());
+          return { userAt, userId, status };
+        }).filter(user => user.status === 'available');
+      } catch (err) {
+        console.error('Failed to fetch CSV:', err);
+        return [];
+      }
     }
 
     async function fetchUserData(userId) {
       const url = `${API_BASE}${userId}/karmafeed`;
-      const response = await fetch(url);
-      if (!response.ok) return null;
-      const data = await response.json();
-      return {
-        karmaWeekRank: data.stats.karmaWeekRank,
-        karmaMonthRank: data.stats.karmaMonthRank
-      };
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Non-200 response');
+        const data = await response.json();
+        if (!data.stats) return null;
+        return {
+          karmaWeekRank: data.stats.karmaWeekRank ?? 'N/A',
+          karmaMonthRank: data.stats.karmaMonthRank ?? 'N/A'
+        };
+      } catch (err) {
+        console.warn(`Error fetching data for user ${userId}:`, err);
+        return null;
+      }
     }
 
     async function buildTable() {
