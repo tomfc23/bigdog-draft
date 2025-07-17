@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Draft Resource</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0A1B2A; color: #EAC76F; padding: 20px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #EAC76F; padding: 8px; text-align: left; }
+    th { background-color: #1A2B3A; }
+  </style>
+</head>
+<body>
+  <h1>Draft Resource - Karma Rankings</h1>
+  <table id="karmaTable">
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Week Rank</th>
+        <th>Month Rank</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQzOSbWAtx4LanZ9VYdGTyih4-2siErBbW4oYKO19ft3wfi116XFoPfl3ZIRtpzoo0E2E2Ij-fFaX-e/pub?output=csv';
+    const API_BASE = 'http://api.real.vg/user/';
+
+    async function fetchCSV() {
+      const response = await fetch(CSV_URL);
+      const text = await response.text();
+      const lines = text.trim().split('\n').slice(1); // skip header
+      return lines.map(line => {
+        const [userAt, userId, status] = line.split(',');
+        return { userAt, userId, status };
+      }).filter(user => user.status === 'available');
+    }
+
+    async function fetchUserData(userId) {
+      const url = `${API_BASE}${userId}/karmafeed`;
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const data = await response.json();
+      return {
+        karmaWeekRank: data.stats.karmaWeekRank,
+        karmaMonthRank: data.stats.karmaMonthRank
+      };
+    }
+
+    async function buildTable() {
+      const users = await fetchCSV();
+      const tableBody = document.querySelector('#karmaTable tbody');
+
+      for (const user of users) {
+        const stats = await fetchUserData(user.userId);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${user.userAt}</td>
+          <td>${stats ? stats.karmaWeekRank : 'N/A'}</td>
+          <td>${stats ? stats.karmaMonthRank : 'N/A'}</td>
+        `;
+        tableBody.appendChild(tr);
+      }
+    }
+
+    buildTable();
+  </script>
+</body>
+</html>
