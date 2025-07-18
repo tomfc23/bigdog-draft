@@ -3,8 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>RST Live with Trophies 2</title>
+  <title>RST Live 2</title>
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 700px;
+      margin: 1em auto;
+      background: #111;
+      color: #eee;
+      padding: 0 1em;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #333;
+      margin: 0.5em 0 1em;
+    }
+  </style>
 </head>
 <body>
   <h1>RST Live</h1>
@@ -16,25 +31,28 @@
     const WORKER_STATS_URL = 'https://rst.tomfconreal.workers.dev/';
     const WORKER_TROPHIES_URL = 'https://draft-trophies.tomfconreal.workers.dev/';
     const loadingEl = document.getElementById('loading');
+    const userListEl = document.getElementById('user-list');
 
+    // Basic CSV parser - splits on commas, assumes no commas inside fields
     function parseCSV(text) {
       const lines = text.trim().split('\n');
       const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
       return lines.slice(1).map(line => {
         const values = line.split(',').map(v => v.trim());
         const obj = {};
-        headers.forEach((h, i) => obj[h] = values[i]);
+        headers.forEach((h, i) => obj[h] = values[i] || '');
         return obj;
       });
     }
 
+    // Creates a player row with trophy info nicely formatted
     function createPlayerRow(user, weekRank, monthRank, trophyCount, trophyText) {
       const div = document.createElement('div');
       div.innerHTML = `
-        <strong>@${user['user @']}</strong> | 
+        <strong>@${user['user @'] || 'unknown'}</strong> | 
         Week Rank: ${weekRank} | 
         Month Rank: ${monthRank} <br>
-        Trophies (${trophyCount}): ${trophyText}
+        <em>Trophies (${trophyCount}):</em> ${trophyText}
         <hr>
       `;
       return div;
@@ -45,9 +63,10 @@
         const bust = `&_=${Date.now()}`;
         const res = await fetch(`${WORKER_STATS_URL}?userId=${encodeURIComponent(userId)}${bust}`);
         const json = await res.json();
-        const weekRank = json?.stats?.karmaWeekRank ?? 'N/A';
-        const monthRank = json?.stats?.karmaMonthRank ?? 'N/A';
-        return { weekRank, monthRank };
+        return {
+          weekRank: json?.stats?.karmaWeekRank ?? 'N/A',
+          monthRank: json?.stats?.karmaMonthRank ?? 'N/A',
+        };
       } catch (err) {
         console.error("Error fetching ranks for", userId, err);
         return { weekRank: 'N/A', monthRank: 'N/A' };
@@ -55,28 +74,29 @@
     }
 
     async function fetchTrophies(userId) {
-  try {
-    const res = await fetch(`${WORKER_TROPHIES_URL}?userId=${encodeURIComponent(userId)}&leaderboardId=null`);
-    const json = await res.json();
-    console.log(`Trophies for ${userId}:`, json);
+      try {
+        const res = await fetch(`${WORKER_TROPHIES_URL}?userId=${encodeURIComponent(userId)}&leaderboardId=null`);
+        const json = await res.json();
 
-    const trophies = json?.trophies || json; // support both formats
-    if (Array.isArray(trophies)) {
-      const names = trophies.map(t => t?.name ?? 'Unnamed').filter(Boolean);
-      return {
-        trophyCount: names.length,
-        trophyText: names.join(', ') || 'None'
-      };
-    } else {
-      return { trophyCount: 0, trophyText: 'No trophies array in response' };
+        // trophies might be under .trophies or the root json array itself
+        const trophies = Array.isArray(json?.trophies) ? json.trophies : (Array.isArray(json) ? json : []);
+
+        if (trophies.length === 0) {
+          return { trophyCount: 0, trophyText: 'No trophies' };
+        }
+
+        // Map trophy names, fallback to "Unnamed Trophy"
+        const names = trophies.map(t => t?.name || 'Unnamed Trophy');
+        const trophyText = names.join(', ');
+        return { trophyCount: names.length, trophyText };
+
+      } catch (err) {
+        console.error("Error fetching trophies for", userId, err);
+        return { trophyCount: 0, trophyText: 'Error loading trophies' };
+      }
     }
-  } catch (err) {
-    console.error("Error fetching trophies for", userId, err);
-    return { trophyCount: 0, trophyText: 'Error' };
-  }
-}
 
-
+    // Limits concurrency of async operations
     async function limitedMap(array, limit, asyncFn, onProgress) {
       const results = [];
       let index = 0;
@@ -98,16 +118,21 @@
 
     async function loadLeaderboard() {
       try {
+        loadingEl.textContent = 'Fetching CSV...';
         const response = await axios.get(CSV_URL);
-        const users = parseCSV(response.data).filter(p => p.status?.toLowerCase() === 'available');
+        const users = parseCSV(response.data)
+          .filter(p => (p.status || '').toLowerCase() === 'available');
 
-        const updateProgress = (loaded, total) => {
-          loadingEl.textContent = `${loaded} loaded out of ${total}...`;
-        };
+        if (!users.length) {
+          loadingEl.textContent = 'No available users found.';
+          return;
+        }
+
+        loadingEl.textContent = `Fetching data for ${users.length} users...`;
 
         const enrichedUsers = await limitedMap(
           users,
-          5, // Limit concurrency to avoid overload
+          5, // concurrency limit
           async (user) => {
             const [ranks, trophies] = await Promise.all([
               fetchRanks(user['user id']),
@@ -115,12 +140,14 @@
             ]);
             return { ...user, ...ranks, ...trophies };
           },
-          updateProgress
+          (loaded, total) => {
+            loadingEl.textContent = `Loaded ${loaded} / ${total} users`;
+          }
         );
 
-        const list = document.getElementById('user-list');
+        userListEl.innerHTML = ''; // clear previous
         enrichedUsers.forEach(user => {
-          list.appendChild(createPlayerRow(
+          userListEl.appendChild(createPlayerRow(
             user,
             user.weekRank,
             user.monthRank,
@@ -129,7 +156,7 @@
           ));
         });
 
-        loadingEl.textContent = 'Live ranks + trophies updated.';
+        loadingEl.textContent = 'Leaderboard loaded.';
       } catch (e) {
         console.error(e);
         loadingEl.textContent = 'Failed to load leaderboard.';
