@@ -55,25 +55,27 @@
     }
 
     async function fetchTrophies(userId) {
-      try {
-        const res = await fetch(`${WORKER_TROPHIES_URL}?userId=${encodeURIComponent(userId)}&leaderboardId=null`);
-        const json = await res.json();
-        console.log(`Trophies for ${userId}:`, json);
+  try {
+    const res = await fetch(`${WORKER_TROPHIES_URL}?userId=${encodeURIComponent(userId)}&leaderboardId=null`);
+    const json = await res.json();
+    console.log(`Trophies for ${userId}:`, json);
 
-        if (Array.isArray(json)) {
-          const names = json.map(t => t?.name ?? 'Unnamed').filter(Boolean);
-          return {
-            trophyCount: names.length,
-            trophyText: names.join(', ') || 'None'
-          };
-        } else {
-          return { trophyCount: 0, trophyText: 'No data returned' };
-        }
-      } catch (err) {
-        console.error("Error fetching trophies for", userId, err);
-        return { trophyCount: 0, trophyText: 'Error' };
-      }
+    const trophies = json?.trophies || json; // support both formats
+    if (Array.isArray(trophies)) {
+      const names = trophies.map(t => t?.name ?? 'Unnamed').filter(Boolean);
+      return {
+        trophyCount: names.length,
+        trophyText: names.join(', ') || 'None'
+      };
+    } else {
+      return { trophyCount: 0, trophyText: 'No trophies array in response' };
     }
+  } catch (err) {
+    console.error("Error fetching trophies for", userId, err);
+    return { trophyCount: 0, trophyText: 'Error' };
+  }
+}
+
 
     async function limitedMap(array, limit, asyncFn, onProgress) {
       const results = [];
