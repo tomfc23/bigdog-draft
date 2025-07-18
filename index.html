@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>RST Live with Composite Scores</title>
+  <title>table</title>
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 700px;
+      max-width: 900px;
       margin: auto;
       padding: 1rem;
       background: #121212;
@@ -19,6 +19,27 @@
       border-top: 1px solid #444;
       margin: 0.5rem 0;
     }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+    th, td {
+      padding: 0.5rem;
+      border: 1px solid #444;
+      text-align: center;
+      user-select: none;
+      cursor: pointer;
+    }
+    th {
+      background: #222;
+    }
+    th.sort-asc::after {
+      content: " ▲";
+    }
+    th.sort-desc::after {
+      content: " ▼";
+    }
   </style>
 </head>
 <body>
@@ -26,11 +47,26 @@
   <div id="loading">Loading...</div>
   <div id="user-list"></div>
 
+  <table id="user-table" hidden>
+    <thead>
+      <tr>
+        <th data-key="compositeScore">Composite Score</th>
+        <th data-key="weekRank">Week Rank</th>
+        <th data-key="monthRank">Month Rank</th>
+        <th data-key="trophyCount">Trophies</th>
+        <th data-key="username">Username</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
   <script>
     const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQzOSbWAtx4LanZ9VYdGTyih4-2siErBbW4oYKO19ft3wfi116XFoPfl3ZIRtpzoo0E2E2Ij-fFaX-e/pub?output=csv';
     const WORKER_STATS_URL = 'https://rst.tomfconreal.workers.dev/';
     const WORKER_TROPHIES_URL = 'https://draft-trophies.tomfconreal.workers.dev/';
     const loadingEl = document.getElementById('loading');
+    const table = document.getElementById('user-table');
+    const tbody = table.querySelector('tbody');
 
     function parseCSV(text) {
       const lines = text.trim().split('\n');
@@ -43,13 +79,11 @@
       });
     }
 
-    // Helper: assign 0 if rank missing or invalid, else parse int
     function parseRank(r) {
       const n = parseInt(r, 10);
       return isNaN(n) ? 0 : n;
     }
 
-    // Composite score weights
     const WEIGHTS = {
       monthlyRank: 0.7,
       weeklyRank: 0.3,
@@ -57,34 +91,24 @@
       trophyRecencyBonus: 0.05,
     };
 
-    // For recency weighting of trophies by season year (season format assumed: "YYYY" or similar)
     function trophyRecencyWeight(season) {
       const currentYear = new Date().getFullYear();
-      // Extract year as number; fallback to 0
       const year = parseInt(season.toString().slice(0,4), 10) || 0;
-      // Linear scale: more recent years get closer to 1, older closer to 0.2 minimum
       const minWeight = 0.2;
-      const maxAge = 10; // years
+      const maxAge = 10;
       let age = currentYear - year;
-      if (age < 0) age = 0; // future season? treat as current
+      if (age < 0) age = 0;
       if (age > maxAge) age = maxAge;
       return minWeight + (1 - (age / maxAge)) * (1 - minWeight);
     }
 
-    // Calculate composite score for a user object with ranks & trophies info
     function calcCompositeScore(user) {
-      // Ranks (lower is better) - transform so lower rank = higher score
       const monthlyRank = parseRank(user.monthRank);
       const weeklyRank = parseRank(user.weekRank);
-      // To invert ranks: if rank = 0 (no rank), score = 0; else score = 1/(rank)
-      // To avoid divide by zero, add 1
       const monthlyScore = monthlyRank ? 1 / monthlyRank : 0;
       const weeklyScore = weeklyRank ? 1 / weeklyRank : 0;
-
-      // Trophy count weighted modestly
       const trophyScore = user.trophyCount ? user.trophyCount * WEIGHTS.trophyCount : 0;
 
-      // Trophy recency bonus: average recency weight of all trophies * bonus weight
       let trophyRecencyBonus = 0;
       if (user.trophies && user.trophies.length > 0) {
         const recencyWeights = user.trophies.map(t => trophyRecencyWeight(t.season));
@@ -92,29 +116,12 @@
         trophyRecencyBonus = avgRecency * WEIGHTS.trophyRecencyBonus;
       }
 
-      // Composite = weighted sum of monthly and weekly ranks plus trophies & recency bonus
-      const composite = 
+      return (
         WEIGHTS.monthlyRank * monthlyScore +
         WEIGHTS.weeklyRank * weeklyScore +
         trophyScore +
-        trophyRecencyBonus;
-
-      return composite;
-    }
-
-    // Create player div with composite score and trophy details
-    function createPlayerRow(user) {
-      const composite = user.compositeScore.toFixed(4);
-      const div = document.createElement('div');
-      div.innerHTML = `
-        <strong>@${user['user @']}</strong> | 
-        Week Rank: ${user.weekRank} | 
-        Month Rank: ${user.monthRank} | 
-        Composite Score: <strong>${composite}</strong> <br>
-        Trophies (${user.trophyCount}): ${user.trophyText}
-        <hr>
-      `;
-      return div;
+        trophyRecencyBonus
+      );
     }
 
     async function fetchRanks(userId) {
@@ -142,7 +149,6 @@
           return { trophyCount: 0, trophyText: 'No trophies', trophies: [] };
         }
 
-        // Trophy descriptions with rank, season, type
         const trophyDescriptions = trophies.map(t => {
           const rank = t.rank ?? t.position ?? 'N/A';
           const season = t.season ?? 'Unknown Season';
@@ -153,7 +159,7 @@
         return {
           trophyCount: trophies.length,
           trophyText: trophyDescriptions.join(', '),
-          trophies // pass full trophies for recency calc
+          trophies
         };
       } catch (err) {
         console.error("Error fetching trophies for", userId, err);
@@ -161,7 +167,6 @@
       }
     }
 
-    // Limit concurrent async calls to `limit`
     async function limitedMap(array, limit, asyncFn, onProgress) {
       const results = [];
       let index = 0;
@@ -181,10 +186,75 @@
       return results;
     }
 
+    // Creates player summary div for legacy user-list display (optional)
+    function createPlayerRow(user) {
+      const composite = user.compositeScore.toFixed(4);
+      const div = document.createElement('div');
+      div.innerHTML = `
+        <strong>@${user['user @']}</strong> | 
+        Week Rank: ${user.weekRank} | 
+        Month Rank: ${user.monthRank} | 
+        Composite Score: <strong>${composite}</strong> <br>
+        Trophies (${user.trophyCount}): ${user.trophyText}
+        <hr>
+      `;
+      return div;
+    }
+
+    // Renders the table body rows
+    function renderTable(users) {
+      tbody.innerHTML = '';
+      users.forEach(user => {
+        const tr = document.createElement('tr');
+
+        tr.innerHTML = `
+          <td>${user.compositeScore.toFixed(4)}</td>
+          <td>${user.weekRank || 0}</td>
+          <td>${user.monthRank || 0}</td>
+          <td>${user.trophyCount || 0}</td>
+          <td>@${user['user @']}</td>
+        `;
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Sort logic
+    let currentSort = { key: 'compositeScore', asc: false };
+
+    function sortUsers(users, key, asc) {
+      return users.slice().sort((a, b) => {
+        let valA = a[key];
+        let valB = b[key];
+
+        // For username, do string compare ignoring case
+        if (key === 'username') {
+          valA = (valA || '').toLowerCase();
+          valB = (valB || '').toLowerCase();
+          return asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+
+        // Numbers: ensure numeric compare
+        valA = Number(valA) || 0;
+        valB = Number(valB) || 0;
+
+        return asc ? valA - valB : valB - valA;
+      });
+    }
+
+    function updateSortHeaders() {
+      const headers = table.querySelectorAll('th');
+      headers.forEach(th => {
+        th.classList.remove('sort-asc', 'sort-desc');
+        if (th.dataset.key === currentSort.key) {
+          th.classList.add(currentSort.asc ? 'sort-asc' : 'sort-desc');
+        }
+      });
+    }
+
     async function loadLeaderboard() {
       try {
         const response = await axios.get(CSV_URL);
-        // Only users with status "available"
         const users = parseCSV(response.data).filter(p => p.status?.toLowerCase() === 'available');
 
         loadingEl.textContent = `0 loaded out of ${users.length}...`;
@@ -204,22 +274,40 @@
           }
         );
 
-        // Compute composite scores
         enrichedUsers.forEach(user => {
           user.compositeScore = calcCompositeScore(user);
         });
 
-        // Sort descending by composite score
-        enrichedUsers.sort((a,b) => b.compositeScore - a.compositeScore);
+        // Initial sort by compositeScore descending
+        let sortedUsers = sortUsers(enrichedUsers, currentSort.key, currentSort.asc);
 
-        const list = document.getElementById('user-list');
-        list.innerHTML = ''; // clear
+        // Clear legacy user-list div
+        document.getElementById('user-list').innerHTML = '';
 
-        enrichedUsers.forEach(user => {
-          list.appendChild(createPlayerRow(user));
-        });
+        // Show and render the table
+        table.hidden = false;
+        renderTable(sortedUsers);
+        updateSortHeaders();
 
         loadingEl.textContent = 'Live ranks + trophies + composite scores updated.';
+
+        // Add sorting handlers on headers
+        const headers = table.querySelectorAll('th');
+        headers.forEach(th => {
+          th.onclick = () => {
+            if (currentSort.key === th.dataset.key) {
+              currentSort.asc = !currentSort.asc; // toggle direction
+            } else {
+              currentSort.key = th.dataset.key;
+              currentSort.asc = true; // ascending default except for composite?
+              if (currentSort.key === 'compositeScore') currentSort.asc = false; // composite default desc
+            }
+            sortedUsers = sortUsers(enrichedUsers, currentSort.key, currentSort.asc);
+            renderTable(sortedUsers);
+            updateSortHeaders();
+          };
+        });
+
       } catch (e) {
         console.error(e);
         loadingEl.textContent = 'Failed to load leaderboard.';
