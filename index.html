@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>table</title>
+  <title>new</title>
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 900px;
+      max-width: 700px;
       margin: auto;
       padding: 1rem;
       background: #121212;
@@ -23,21 +23,21 @@
       width: 100%;
       border-collapse: collapse;
       margin-top: 1rem;
+      color: #eee;
     }
     th, td {
       padding: 0.5rem;
       border: 1px solid #444;
-      text-align: center;
-      user-select: none;
+      text-align: left;
       cursor: pointer;
     }
-    th {
-      background: #222;
+    th:hover {
+      background: #333;
     }
-    th.sort-asc::after {
+    th.sorted-asc::after {
       content: " ▲";
     }
-    th.sort-desc::after {
+    th.sorted-desc::after {
       content: " ▼";
     }
   </style>
@@ -47,17 +47,17 @@
   <div id="loading">Loading...</div>
   <div id="user-list"></div>
 
-  <table id="user-table" hidden>
+  <table id="leaderboard-table" style="display:none;">
     <thead>
       <tr>
-        <th data-key="compositeScore">Composite Score</th>
-        <th data-key="weekRank">Week Rank</th>
-        <th data-key="monthRank">Month Rank</th>
-        <th data-key="trophyCount">Trophies</th>
-        <th data-key="username">Username</th>
+        <th data-sort="compositeScore" class="sorted-desc">Composite Score</th>
+        <th data-sort="monthRank">Month Rank</th>
+        <th data-sort="weekRank">Week Rank</th>
+        <th data-sort="trophyCount">Trophy Count</th>
+        <th>Username</th>
       </tr>
     </thead>
-    <tbody></tbody>
+    <tbody id="table-body"></tbody>
   </table>
 
   <script>
@@ -65,8 +65,6 @@
     const WORKER_STATS_URL = 'https://rst.tomfconreal.workers.dev/';
     const WORKER_TROPHIES_URL = 'https://draft-trophies.tomfconreal.workers.dev/';
     const loadingEl = document.getElementById('loading');
-    const table = document.getElementById('user-table');
-    const tbody = table.querySelector('tbody');
 
     function parseCSV(text) {
       const lines = text.trim().split('\n');
@@ -85,10 +83,10 @@
     }
 
     const WEIGHTS = {
-      monthlyRank: 0.7,
-      weeklyRank: 0.3,
-      trophyCount: 0.1,
-      trophyRecencyBonus: 0.05,
+      trophyCount: 6,
+      trophyRecencyBonus: 1,
+      monthlyRank: 2,
+      weeklyRank: 1,
     };
 
     function trophyRecencyWeight(season) {
@@ -105,23 +103,20 @@
     function calcCompositeScore(user) {
       const monthlyRank = parseRank(user.monthRank);
       const weeklyRank = parseRank(user.weekRank);
+
       const monthlyScore = monthlyRank ? 1 / monthlyRank : 0;
       const weeklyScore = weeklyRank ? 1 / weeklyRank : 0;
+
       const trophyScore = user.trophyCount ? user.trophyCount * WEIGHTS.trophyCount : 0;
 
       let trophyRecencyBonus = 0;
       if (user.trophies && user.trophies.length > 0) {
         const recencyWeights = user.trophies.map(t => trophyRecencyWeight(t.season));
-        const avgRecency = recencyWeights.reduce((a,b) => a+b, 0) / recencyWeights.length;
+        const avgRecency = recencyWeights.reduce((a,b) => a + b, 0) / recencyWeights.length;
         trophyRecencyBonus = avgRecency * WEIGHTS.trophyRecencyBonus;
       }
 
-      return (
-        WEIGHTS.monthlyRank * monthlyScore +
-        WEIGHTS.weeklyRank * weeklyScore +
-        trophyScore +
-        trophyRecencyBonus
-      );
+      return trophyScore + trophyRecencyBonus + (monthlyScore * WEIGHTS.monthlyRank) + (weeklyScore * WEIGHTS.weeklyRank);
     }
 
     async function fetchRanks(userId) {
@@ -186,70 +181,76 @@
       return results;
     }
 
-    // Creates player summary div for legacy user-list display (optional)
-    function createPlayerRow(user) {
-      const composite = user.compositeScore.toFixed(4);
-      const div = document.createElement('div');
-      div.innerHTML = `
-        <strong>@${user['user @']}</strong> | 
-        Week Rank: ${user.weekRank} | 
-        Month Rank: ${user.monthRank} | 
-        Composite Score: <strong>${composite}</strong> <br>
-        Trophies (${user.trophyCount}): ${user.trophyText}
-        <hr>
-      `;
-      return div;
-    }
-
-    // Renders the table body rows
-    function renderTable(users) {
-      tbody.innerHTML = '';
-      users.forEach(user => {
-        const tr = document.createElement('tr');
-
-        tr.innerHTML = `
-          <td>${user.compositeScore.toFixed(4)}</td>
-          <td>${user.weekRank || 0}</td>
-          <td>${user.monthRank || 0}</td>
-          <td>${user.trophyCount || 0}</td>
-          <td>@${user['user @']}</td>
-        `;
-
-        tbody.appendChild(tr);
-      });
-    }
-
-    // Sort logic
-    let currentSort = { key: 'compositeScore', asc: false };
-
-    function sortUsers(users, key, asc) {
-      return users.slice().sort((a, b) => {
-        let valA = a[key];
-        let valB = b[key];
-
-        // For username, do string compare ignoring case
-        if (key === 'username') {
-          valA = (valA || '').toLowerCase();
-          valB = (valB || '').toLowerCase();
-          return asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
-        }
-
-        // Numbers: ensure numeric compare
-        valA = Number(valA) || 0;
-        valB = Number(valB) || 0;
-
-        return asc ? valA - valB : valB - valA;
-      });
-    }
-
-    function updateSortHeaders() {
+    // Sorting functionality for table
+    function setupTableSort(users) {
+      const table = document.getElementById('leaderboard-table');
+      const tbody = document.getElementById('table-body');
       const headers = table.querySelectorAll('th');
-      headers.forEach(th => {
-        th.classList.remove('sort-asc', 'sort-desc');
-        if (th.dataset.key === currentSort.key) {
-          th.classList.add(currentSort.asc ? 'sort-asc' : 'sort-desc');
+      let currentSort = 'compositeScore';
+      let currentDir = 'desc';
+
+      function renderTable(users) {
+        tbody.innerHTML = '';
+        users.forEach(u => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>@${u['user @']}</td>
+            <td>${u.compositeScore.toFixed(4)}</td>
+            <td>${u.monthRank || 'N/A'}</td>
+            <td>${u.weekRank || 'N/A'}</td>
+            <td>${u.trophyCount}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function sortUsers(sortKey) {
+        if (currentSort === sortKey) {
+          currentDir = currentDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          currentSort = sortKey;
+          currentDir = 'asc';
+        }
+
+        // Remove sort indicators
+        headers.forEach(h => {
+          h.classList.remove('sorted-asc', 'sorted-desc');
+        });
+
+        const header = Array.from(headers).find(h => h.dataset.sort === sortKey);
+        if (header) {
+          header.classList.add(currentDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
+
+        users.sort((a, b) => {
+          let valA = a[sortKey];
+          let valB = b[sortKey];
+
+          // For ranks, treat 0 as very high rank (sort them last)
+          if (sortKey === 'monthRank' || sortKey === 'weekRank') {
+            valA = valA || Number.MAX_SAFE_INTEGER;
+            valB = valB || Number.MAX_SAFE_INTEGER;
+          }
+
+          if (valA < valB) return currentDir === 'asc' ? -1 : 1;
+          if (valA > valB) return currentDir === 'asc' ? 1 : -1;
+          return 0;
+        });
+
+        renderTable(users);
+      }
+
+      headers.forEach(header => {
+        if (header.dataset.sort) {
+          header.addEventListener('click', () => sortUsers(header.dataset.sort));
         }
       });
+
+      // Initial render
+      sortUsers('compositeScore');
+
+      // Show table now
+      table.style.display = 'table';
     }
 
     async function loadLeaderboard() {
@@ -278,36 +279,9 @@
           user.compositeScore = calcCompositeScore(user);
         });
 
-        // Initial sort by compositeScore descending
-        let sortedUsers = sortUsers(enrichedUsers, currentSort.key, currentSort.asc);
-
-        // Clear legacy user-list div
-        document.getElementById('user-list').innerHTML = '';
-
-        // Show and render the table
-        table.hidden = false;
-        renderTable(sortedUsers);
-        updateSortHeaders();
-
         loadingEl.textContent = 'Live ranks + trophies + composite scores updated.';
 
-        // Add sorting handlers on headers
-        const headers = table.querySelectorAll('th');
-        headers.forEach(th => {
-          th.onclick = () => {
-            if (currentSort.key === th.dataset.key) {
-              currentSort.asc = !currentSort.asc; // toggle direction
-            } else {
-              currentSort.key = th.dataset.key;
-              currentSort.asc = true; // ascending default except for composite?
-              if (currentSort.key === 'compositeScore') currentSort.asc = false; // composite default desc
-            }
-            sortedUsers = sortUsers(enrichedUsers, currentSort.key, currentSort.asc);
-            renderTable(sortedUsers);
-            updateSortHeaders();
-          };
-        });
-
+        setupTableSort(enrichedUsers);
       } catch (e) {
         console.error(e);
         loadingEl.textContent = 'Failed to load leaderboard.';
