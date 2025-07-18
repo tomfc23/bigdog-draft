@@ -3,107 +3,99 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Karma League - Rankings</title>
-  <style>
-    body {
-      background-color: #121212;
-      color: #ffffff;
-      font-family: Arial, sans-serif;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 20px;
-    }
-    th, td {
-      padding: 10px;
-      text-align: left;
-      border-bottom: 1px solid #444;
-    }
-    th {
-      background-color: #1e1e1e;
-    }
-  </style>
+  <title>RST Live</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>
-  <h1>Karma League - Rankings</h1>
-  <table id="scoreTable">
-    <thead>
-      <tr>
-        <th>User</th>
-        <th>Week Rank</th>
-        <th>Month Rank</th>
-      </tr>
-    </thead>
-    <tbody id="tableBody">
-      <tr><td colspan="3">Loading...</td></tr>
-    </tbody>
-  </table>
+  <h1>RST Live</h1>
+  <div id="loading">Loading...</div>
+  <div id="user-list"></div>
 
   <script>
     const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQzOSbWAtx4LanZ9VYdGTyih4-2siErBbW4oYKO19ft3wfi116XFoPfl3ZIRtpzoo0E2E2Ij-fFaX-e/pub?output=csv';
+    const WORKER_URL = 'https://rst.tomfconreal.workers.dev/';
+    const loadingEl = document.getElementById('loading');
 
-    async function fetchCSV(url) {
-      const response = await fetch(url);
-      const text = await response.text();
-      return text.split('\n').slice(1).map(row => {
-        const [username, userId, status] = row.split(',');
-        return {
-          username: username.trim(),
-          userId: userId.trim(),
-          status: status.trim()
-        };
-      }).filter(row => row.status === 'available');
+    function parseCSV(text) {
+      const lines = text.trim().split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      return lines.slice(1).map(line => {
+        const values = line.split(',').map(v => v.trim());
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = values[i]);
+        return obj;
+      });
     }
 
-    async function fetchKarmaStats(userId) {
+    function createPlayerRow(user, weekRank, monthRank) {
+      const div = document.createElement('div');
+      div.textContent = `@${user['user @']} | Week Rank: ${weekRank} | Month Rank: ${monthRank}`;
+      return div;
+    }
+
+    async function fetchRanks(userId) {
       try {
-        const res = await fetch(`https://api.real.vg/user/${userId}/karmafeed`);
-        const data = await res.json();
-        const stats = data.stats || {};
-        return {
-          weekRank: stats.karmaWeekRank ?? 'N/A',
-          monthRank: stats.karmaMonthRank ?? 'N/A'
-        };
-      } catch (err) {
-        console.error(`Error fetching stats for ${userId}`, err);
-        return {
-          weekRank: 'N/A',
-          monthRank: 'N/A'
-        };
+        const bust = `&_=${Date.now()}`;
+        const res = await fetch(`${WORKER_URL}?userId=${encodeURIComponent(userId)}${bust}`);
+        const json = await res.json();
+        const weekRank = json?.stats?.karmaWeekRank ?? 'N/A';
+        const monthRank = json?.stats?.karmaMonthRank ?? 'N/A';
+        return { weekRank, monthRank };
+      } catch {
+        return { weekRank: 'N/A', monthRank: 'N/A' };
       }
     }
 
-    async function buildTable() {
-      const tableBody = document.getElementById('tableBody');
-      tableBody.innerHTML = '<tr><td colspan="3">Loading...</td></tr>';
+    async function limitedMap(array, limit, asyncFn, onProgress) {
+      const results = [];
+      let index = 0;
+      const executing = new Set();
 
-      const users = await fetchCSV(CSV_URL);
-      tableBody.innerHTML = '';
+      for (const item of array) {
+        const p = asyncFn(item).then(result => {
+          results.push(result);
+          if (onProgress) onProgress(++index, array.length);
+        });
+        executing.add(p);
+        p.finally(() => executing.delete(p));
+        if (executing.size >= limit) await Promise.race(executing);
+      }
 
-      for (const user of users) {
-        const row = document.createElement('tr');
-        const nameCell = document.createElement('td');
-        nameCell.textContent = user.username;
+      await Promise.all(executing);
+      return results;
+    }
 
-        const weekRankCell = document.createElement('td');
-        weekRankCell.textContent = '...';
+    async function loadLeaderboard() {
+      try {
+        const response = await axios.get(CSV_URL);
+        const users = parseCSV(response.data).filter(p => p.status?.toLowerCase() === 'available');
+        const updateProgress = (loaded, total) => {
+          loadingEl.textContent = `${loaded} loaded out of ${total}...`;
+        };
 
-        const monthRankCell = document.createElement('td');
-        monthRankCell.textContent = '...';
+        const enrichedUsers = await limitedMap(
+          users,
+          10,
+          async (user) => {
+            const { weekRank, monthRank } = await fetchRanks(user['user id']);
+            return { ...user, weekRank, monthRank };
+          },
+          updateProgress
+        );
 
-        row.appendChild(nameCell);
-        row.appendChild(weekRankCell);
-        row.appendChild(monthRankCell);
-        tableBody.appendChild(row);
+        const list = document.getElementById('user-list');
+        enrichedUsers.forEach(user => {
+          list.appendChild(createPlayerRow(user, user.weekRank, user.monthRank));
+        });
 
-        const stats = await fetchKarmaStats(user.userId);
-        weekRankCell.textContent = stats.weekRank;
-        monthRankCell.textContent = stats.monthRank;
+        loadingEl.textContent = 'Live ranks updated.';
+      } catch (e) {
+        console.error(e);
+        loadingEl.textContent = 'Failed to load leaderboard.';
       }
     }
 
-    buildTable();
+    loadLeaderboard();
   </script>
 </body>
 </html>
