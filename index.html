@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>new</title>
+  <title>new 2 </title>
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   <style>
     body {
@@ -194,11 +194,11 @@
         users.forEach(u => {
           const tr = document.createElement('tr');
           tr.innerHTML = `
-            <td>@${u['user @']}</td>
             <td>${u.compositeScore.toFixed(4)}</td>
             <td>${u.monthRank || 'N/A'}</td>
             <td>${u.weekRank || 'N/A'}</td>
             <td>${u.trophyCount}</td>
+            <td>@${u['user @']}</td>
           `;
           tbody.appendChild(tr);
         });
