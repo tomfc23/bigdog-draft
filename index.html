@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>radnom</title>
+  <title>dkf</title>
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>
@@ -17,6 +17,7 @@
     const WORKER_TROPHIES_URL = 'https://draft-trophies.tomfconreal.workers.dev/';
     const loadingEl = document.getElementById('loading');
 
+    // Simple CSV parser
     function parseCSV(text) {
       const lines = text.trim().split('\n');
       const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
@@ -28,6 +29,7 @@
       });
     }
 
+    // Create a div for each player with relevant info
     function createPlayerRow(user, weekRank, monthRank, trophyCount, trophyText) {
       const div = document.createElement('div');
       div.innerHTML = `
@@ -40,6 +42,7 @@
       return div;
     }
 
+    // Fetch user's week and month ranks
     async function fetchRanks(userId) {
       try {
         const bust = `&_=${Date.now()}`;
@@ -54,27 +57,30 @@
       }
     }
 
+    // Fetch trophies and extract rank, season, and type for each trophy
     async function fetchTrophies(userId) {
       try {
         const res = await fetch(`${WORKER_TROPHIES_URL}?userId=${encodeURIComponent(userId)}&leaderboardId=null`);
         const json = await res.json();
 
-        // Try both json.trophies and json itself for trophies array
+        // trophies array can be in json.trophies or json itself
         const trophies = Array.isArray(json?.trophies) ? json.trophies : (Array.isArray(json) ? json : []);
-
-        console.log(`Trophies raw for ${userId}:`, trophies);
 
         if (trophies.length === 0) {
           return { trophyCount: 0, trophyText: 'No trophies' };
         }
 
-        const names = trophies.map(t =>
-          t?.name || t?.title || t?.label || t?.description || 'Unnamed Trophy'
-        );
+        // Map trophies to string showing rank, season, type
+        const trophyDescriptions = trophies.map(t => {
+          const rank = t.rank ?? t.position ?? 'N/A';
+          const season = t.season ?? 'Unknown Season';
+          const type = t.type ?? t.title ?? 'Unknown Type';
+          return `[Rank: ${rank}, Season: ${season}, Type: ${type}]`;
+        });
 
         return {
-          trophyCount: names.length,
-          trophyText: names.join(', ')
+          trophyCount: trophyDescriptions.length,
+          trophyText: trophyDescriptions.join(', ')
         };
       } catch (err) {
         console.error("Error fetching trophies for", userId, err);
@@ -82,6 +88,7 @@
       }
     }
 
+    // Limits concurrent async calls to `limit` at a time
     async function limitedMap(array, limit, asyncFn, onProgress) {
       const results = [];
       let index = 0;
@@ -104,6 +111,7 @@
     async function loadLeaderboard() {
       try {
         const response = await axios.get(CSV_URL);
+        // Only include players with status 'available' (case-insensitive)
         const users = parseCSV(response.data).filter(p => p.status?.toLowerCase() === 'available');
 
         const updateProgress = (loaded, total) => {
