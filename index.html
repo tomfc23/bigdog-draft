@@ -3,24 +3,26 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>RST Live with Composite Value</title>
+  <title>RST Live with Composite Scores</title>
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 1rem; background: #111; color: #eee; }
-    #loading { margin-bottom: 1rem; }
-    .player {
-      margin-bottom: 1rem;
-      border-bottom: 1px solid #444;
-      padding-bottom: 0.5rem;
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 700px;
+      margin: auto;
+      padding: 1rem;
+      background: #121212;
+      color: #eee;
     }
-    .value {
-      font-weight: bold;
-      color: #0f0;
+    hr {
+      border: none;
+      border-top: 1px solid #444;
+      margin: 0.5rem 0;
     }
   </style>
 </head>
 <body>
-  <h1>RST Live — Composite Scores</h1>
+  <h1>RST Live - Composite Scores</h1>
   <div id="loading">Loading...</div>
   <div id="user-list"></div>
 
@@ -29,16 +31,6 @@
     const WORKER_STATS_URL = 'https://rst.tomfconreal.workers.dev/';
     const WORKER_TROPHIES_URL = 'https://draft-trophies.tomfconreal.workers.dev/';
     const loadingEl = document.getElementById('loading');
-
-    // Config constants
-    const MAX_RANK = 1000;
-    const CURRENT_YEAR = new Date().getFullYear();
-    const TROPHY_BASE_VALUE = 0.01;  // Small contribution per trophy
-    const TROPHY_DECAY = 1.5;        // Decay exponent for recency, higher = faster decay
-    const MONTHLY_WEIGHT = 0.7;
-    const WEEKLY_WEIGHT = 0.3;
-    const ALPHA = 1.0;  // trophy weight for monthly
-    const BETA = 0.4;   // trophy weight for weekly
 
     function parseCSV(text) {
       const lines = text.trim().split('\n');
@@ -51,15 +43,76 @@
       });
     }
 
+    // Helper: assign 0 if rank missing or invalid, else parse int
+    function parseRank(r) {
+      const n = parseInt(r, 10);
+      return isNaN(n) ? 0 : n;
+    }
+
+    // Composite score weights
+    const WEIGHTS = {
+      monthlyRank: 0.7,
+      weeklyRank: 0.3,
+      trophyCount: 0.1,
+      trophyRecencyBonus: 0.05,
+    };
+
+    // For recency weighting of trophies by season year (season format assumed: "YYYY" or similar)
+    function trophyRecencyWeight(season) {
+      const currentYear = new Date().getFullYear();
+      // Extract year as number; fallback to 0
+      const year = parseInt(season.toString().slice(0,4), 10) || 0;
+      // Linear scale: more recent years get closer to 1, older closer to 0.2 minimum
+      const minWeight = 0.2;
+      const maxAge = 10; // years
+      let age = currentYear - year;
+      if (age < 0) age = 0; // future season? treat as current
+      if (age > maxAge) age = maxAge;
+      return minWeight + (1 - (age / maxAge)) * (1 - minWeight);
+    }
+
+    // Calculate composite score for a user object with ranks & trophies info
+    function calcCompositeScore(user) {
+      // Ranks (lower is better) - transform so lower rank = higher score
+      const monthlyRank = parseRank(user.monthRank);
+      const weeklyRank = parseRank(user.weekRank);
+      // To invert ranks: if rank = 0 (no rank), score = 0; else score = 1/(rank)
+      // To avoid divide by zero, add 1
+      const monthlyScore = monthlyRank ? 1 / monthlyRank : 0;
+      const weeklyScore = weeklyRank ? 1 / weeklyRank : 0;
+
+      // Trophy count weighted modestly
+      const trophyScore = user.trophyCount ? user.trophyCount * WEIGHTS.trophyCount : 0;
+
+      // Trophy recency bonus: average recency weight of all trophies * bonus weight
+      let trophyRecencyBonus = 0;
+      if (user.trophies && user.trophies.length > 0) {
+        const recencyWeights = user.trophies.map(t => trophyRecencyWeight(t.season));
+        const avgRecency = recencyWeights.reduce((a,b) => a+b, 0) / recencyWeights.length;
+        trophyRecencyBonus = avgRecency * WEIGHTS.trophyRecencyBonus;
+      }
+
+      // Composite = weighted sum of monthly and weekly ranks plus trophies & recency bonus
+      const composite = 
+        WEIGHTS.monthlyRank * monthlyScore +
+        WEIGHTS.weeklyRank * weeklyScore +
+        trophyScore +
+        trophyRecencyBonus;
+
+      return composite;
+    }
+
+    // Create player div with composite score and trophy details
     function createPlayerRow(user) {
+      const composite = user.compositeScore.toFixed(4);
       const div = document.createElement('div');
-      div.className = 'player';
       div.innerHTML = `
         <strong>@${user['user @']}</strong> | 
-        Week Rank: ${user.weekRank || 'N/A'} | 
-        Month Rank: ${user.monthRank || 'N/A'} <br>
-        Trophies (${user.trophyCount}): ${user.trophyText} <br>
-        Composite Value: <span class="value">${user.compositeValue.toFixed(4)}</span>
+        Week Rank: ${user.weekRank} | 
+        Month Rank: ${user.monthRank} | 
+        Composite Score: <strong>${composite}</strong> <br>
+        Trophies (${user.trophyCount}): ${user.trophyText}
+        <hr>
       `;
       return div;
     }
@@ -69,8 +122,8 @@
         const bust = `&_=${Date.now()}`;
         const res = await fetch(`${WORKER_STATS_URL}?userId=${encodeURIComponent(userId)}${bust}`);
         const json = await res.json();
-        const weekRank = json?.stats?.karmaWeekRank ? Number(json.stats.karmaWeekRank) : 0;
-        const monthRank = json?.stats?.karmaMonthRank ? Number(json.stats.karmaMonthRank) : 0;
+        const weekRank = json?.stats?.karmaWeekRank ?? 0;
+        const monthRank = json?.stats?.karmaMonthRank ?? 0;
         return { weekRank, monthRank };
       } catch (err) {
         console.error("Error fetching ranks for", userId, err);
@@ -84,46 +137,31 @@
         const json = await res.json();
 
         const trophies = Array.isArray(json?.trophies) ? json.trophies : (Array.isArray(json) ? json : []);
+
         if (trophies.length === 0) {
-          return { trophyCount: 0, trophyText: 'No trophies', trophyScore: 0 };
+          return { trophyCount: 0, trophyText: 'No trophies', trophies: [] };
         }
 
-        // Compute trophy score with decay by year
-        let trophyScore = 0;
-        const names = [];
-        trophies.forEach(t => {
-          const name = t?.name || t?.title || t?.label || t?.description || 'Unnamed Trophy';
-          names.push(name);
-          const year = t?.year ? Number(t.year) : CURRENT_YEAR; // if no year, assume current year
-          const yearsAgo = Math.max(CURRENT_YEAR - year + 1, 1);
-          const recencyWeight = 1 / Math.pow(yearsAgo, TROPHY_DECAY);
-          trophyScore += TROPHY_BASE_VALUE * recencyWeight;
+        // Trophy descriptions with rank, season, type
+        const trophyDescriptions = trophies.map(t => {
+          const rank = t.rank ?? t.position ?? 'N/A';
+          const season = t.season ?? 'Unknown Season';
+          const type = t.type ?? t.title ?? 'Unknown Type';
+          return `[Rank: ${rank}, Season: ${season}, Type: ${type}]`;
         });
 
         return {
           trophyCount: trophies.length,
-          trophyText: names.join(', '),
-          trophyScore
+          trophyText: trophyDescriptions.join(', '),
+          trophies // pass full trophies for recency calc
         };
       } catch (err) {
         console.error("Error fetching trophies for", userId, err);
-        return { trophyCount: 0, trophyText: 'Error loading trophies', trophyScore: 0 };
+        return { trophyCount: 0, trophyText: 'Error loading trophies', trophies: [] };
       }
     }
 
-    function rankToScore(rank) {
-      if (!rank || rank <= 0) return 0;
-      return Math.max(0, (MAX_RANK - rank) / MAX_RANK);
-    }
-
-    function computeComposite(user) {
-      const S_month = rankToScore(user.monthRank);
-      const S_week = rankToScore(user.weekRank);
-      const trophyScore = user.trophyScore || 0;
-
-      return MONTHLY_WEIGHT * (S_month + ALPHA * trophyScore) + WEEKLY_WEIGHT * (S_week + BETA * trophyScore);
-    }
-
+    // Limit concurrent async calls to `limit`
     async function limitedMap(array, limit, asyncFn, onProgress) {
       const results = [];
       let index = 0;
@@ -146,11 +184,10 @@
     async function loadLeaderboard() {
       try {
         const response = await axios.get(CSV_URL);
+        // Only users with status "available"
         const users = parseCSV(response.data).filter(p => p.status?.toLowerCase() === 'available');
 
-        const updateProgress = (loaded, total) => {
-          loadingEl.textContent = `Loaded ${loaded} of ${total} players...`;
-        };
+        loadingEl.textContent = `0 loaded out of ${users.length}...`;
 
         const enrichedUsers = await limitedMap(
           users,
@@ -162,25 +199,27 @@
             ]);
             return { ...user, ...ranks, ...trophies };
           },
-          updateProgress
+          (loaded, total) => {
+            loadingEl.textContent = `${loaded} loaded out of ${total}...`;
+          }
         );
 
-        // Compute composite value for each user
-        enrichedUsers.forEach(u => {
-          u.compositeValue = computeComposite(u);
+        // Compute composite scores
+        enrichedUsers.forEach(user => {
+          user.compositeScore = calcCompositeScore(user);
         });
 
-        // Sort descending by composite value
-        enrichedUsers.sort((a, b) => b.compositeValue - a.compositeValue);
+        // Sort descending by composite score
+        enrichedUsers.sort((a,b) => b.compositeScore - a.compositeScore);
 
-        // Render
         const list = document.getElementById('user-list');
-        list.innerHTML = '';
+        list.innerHTML = ''; // clear
+
         enrichedUsers.forEach(user => {
           list.appendChild(createPlayerRow(user));
         });
 
-        loadingEl.textContent = 'Leaderboard loaded and scored.';
+        loadingEl.textContent = 'Live ranks + trophies + composite scores updated.';
       } catch (e) {
         console.error(e);
         loadingEl.textContent = 'Failed to load leaderboard.';
